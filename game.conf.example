@@ -1,0 +1,29 @@
+# Game Configuration 
+
+# Format: [GAME]: game_name
+[GAME]: CounterStrike
+[GAME]: Valorant
+[GAME]: chess
+
+# For each game, configure a custom message that will be sent when the game starts
+# Use @sender@ to reference the user who triggered the game
+# Use multiple 🎮 emojis for repeated notifications
+
+# Example for CounterStrike
+[GAME]: CounterStrike
+message: 🎮 CounterStrike match starting!\n@sender ready to play!\n🎮🎮🎮🎮🎮🎮🎮🎮🎮
+repeats: 3
+time: 5
+
+# Example for Valorant with shorter message
+[GAME]: Valorant
+message: 🎮 Valorant game!\n@sender ready!\n🎮🎮
+time: 0
+
+# Example for Chess
+[GAME]: Chess
+message: 🎮 Chess tournament!\n@sender ready!\n🎮
+time: 10
+
+# For games with short playtime (seconds), set time to 0 and schedule manually
+# For games with long playtime in minutes, use the time parameter
