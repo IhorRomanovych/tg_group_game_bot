@@ -77,34 +77,67 @@ func main() {
 	b.Handle("/gamenow", handleGameNow)
 	b.Handle("/list", handleList)
 
-	// Admin
+	// Admin - Ban Management
 	b.Handle("/ban", func(c telebot.Context) error {
 		if !isAdmin(c.Sender().ID) { return nil }
-		id, _ := strconv.ParseInt(c.Args()[0], 10, 64)
+		if len(c.Args()) == 0 { return c.Send("❌ Usage: /ban <user_id>") }
+		
+		id, err := strconv.ParseInt(c.Args()[0], 10, 64)
+		if err != nil { return c.Send("❌ Invalid ID.") }
+		
 		banList.Store(id, true)
 		saveData()
-		return c.Send(fmt.Sprintf("🔨 User %d restricted (No tags in /list).", id))
+		log.Printf("[ADMIN] Banned User ID: %d", id)
+		return c.Send(fmt.Sprintf("🔨 User <code>%d</code> is now restricted.", id), telebot.ModeHTML)
 	})
 
 	b.Handle("/unban", func(c telebot.Context) error {
 		if !isAdmin(c.Sender().ID) { return nil }
-		id, _ := strconv.ParseInt(c.Args()[0], 10, 64)
+		if len(c.Args()) == 0 { return c.Send("❌ Usage: /unban <user_id>") }
+		
+		id, err := strconv.ParseInt(c.Args()[0], 10, 64)
+		if err != nil { return c.Send("❌ Invalid ID.") }
+		
 		banList.Delete(id)
 		saveData()
-		return c.Send(fmt.Sprintf("✅ User %d unrestricted.", id))
+		log.Printf("[ADMIN] Unbanned User ID: %d", id)
+		return c.Send(fmt.Sprintf("✅ User <code>%d</code> unrestricted.", id), telebot.ModeHTML)
+	})
+
+	b.Handle("/banlist", func(c telebot.Context) error {
+		if !isAdmin(c.Sender().ID) { return nil }
+		
+		var sb strings.Builder
+		sb.WriteString("🚫 <b>Restricted User IDs:</b>\n")
+		
+		count := 0
+		banList.Range(func(key, value any) bool {
+			count++
+			sb.WriteString(fmt.Sprintf("%d. <code>%v</code>\n", count, key))
+			return true
+		})
+
+		if count == 0 {
+			return c.Send("🚫 The ban list is currently empty.")
+		}
+		return c.Send(sb.String(), telebot.ModeHTML)
 	})
 
 	b.Handle("/rmcat", func(c telebot.Context) error {
 		if !isAdmin(c.Sender().ID) { return nil }
+		if len(c.Args()) == 0 { return c.Send("❌ Usage: /rmcat <GAME>") }
+		
 		game := strings.ToUpper(c.Args()[0])
 		subscriptions.Delete(getSubKey(c.Chat().ID, game))
 		saveData()
-		return c.Send("🗑 Category removed.")
+		log.Printf("[ADMIN] Removed category: %s", game)
+		return c.Send(fmt.Sprintf("🗑 Category <b>%s</b> removed.", game), telebot.ModeHTML)
 	})
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	go b.Start()
+	log.Printf("Bot started as @%s (Owner ID: %d)", b.Me.Username, ownerID)
 	<-stop
 	saveData()
 	b.Stop()
@@ -116,7 +149,6 @@ func getSubKey(chatID int64, game string) string {
 	return fmt.Sprintf("%d:%s", chatID, strings.ToUpper(game))
 }
 
-// Tags EVERYONE when a gathering starts (per your requirement)
 func getMentions(chatID int64, game string) string {
 	var mentions []string
 	key := getSubKey(chatID, game)
@@ -148,7 +180,6 @@ func handleList(c telebot.Context) error {
 
 			var names []string
 			for _, u := range list {
-				// CHANGE: Everyone is just plain text here. NO TAGS.
 				names = append(names, html.EscapeString(u.FirstName))
 			}
 			output.WriteString(strings.Join(names, ", "))
@@ -253,11 +284,13 @@ func loadData() {
 	if err := json.Unmarshal(bytes, &store); err == nil {
 		for k, v := range store.Subscriptions { subscriptions.Store(k, v) }
 		for k, v := range store.BanList { banList.Store(k, v) }
+		log.Println("Database loaded successfully.")
 		return
 	}
 	var oldData map[string][]UserSubscription
 	if err := json.Unmarshal(bytes, &oldData); err == nil {
 		for k, v := range oldData { subscriptions.Store(k, v) }
+		log.Println("Old database format migrated.")
 	}
 }
 
