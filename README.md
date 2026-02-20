@@ -6,27 +6,34 @@ A high-performance, ultra-lightweight Telegram bot designed to run on the **Bana
 
 ### Category-Based Subscriptions
 
-* **Chat Isolation**: Subscriptions are specific to each group; joining a game in one group won't tag you in another.
-* **`/join <game>`**: Users opt-in to specific categories (e.g., DOTA2, PUBG) to receive notifications.
-* **`/leave <game>`**: Users can unsubscribe from any category at any time.
-* **`/list`**: View all active game categories and subscriber counts for the current group.
+* **Chat Isolation**: Subscriptions are scoped to each group via `ChatID`; joining a game in one group won't tag you in another.
+* **`/join <game>`**: Opt-in to specific categories (e.g., DOTA2, CS2) to receive notifications.
+* **`/leave <game>`**: Unsubscribe from a category.
+* **`/list`**: A silent command that lists all active categories in the current group and shows who is subscribed to each.
 
 ### Game Announcements
 
-* **`/gamenow <game>`**: Instantly pings all subscribers of a category and pins the invitation.
-* **`/goplay <game> [mins]`**: Schedules a game. Tags subscribers **immediately** in the confirmation message and sends the final invitation after the delay.
-* **Inline Suggestions**: Type `@your_bot_name ` to see a pop-up menu of available game categories.
+* **`/gamenow <game>`**: Instantly pings all subscribers (up to 50 per category) and **pins** the invitation message.
+* **`/goplay <game> [mins]`**: Schedules a game. If a time is provided, it triggers a timer; otherwise, it pings immediately. All invitations automatically attempt to pin the message for maximum visibility.
+
+### 🛡️ Admin & Moderation
+
+The bot includes a robust management system for the owner (set via the `-o` flag):
+
+* **`/ban <user_id>`**: Restricts a specific user from using the bot.
+* **`/unban <user_id>`**: Lifts restrictions on a user.
+* **`/banlist`**: Displays all currently restricted Telegram IDs.
+* **`/rmcat <GAME>`**: Force-deletes a game category and all its subscriptions from the group.
 
 ### Technical Optimizations for BPI-R4
 
-* **JSON Persistence**: Automatically saves subscriptions to `/etc/tg-bot/subscriptions.json`. Users don't need to re-join after a router reboot.
-* **Ultra-Lightweight**: Built in Go; uses `sync.Map` and `time.AfterFunc` for near-zero idle CPU and minimal RAM footprint.
-* **HTML Formatting**: Uses robust HTML parsing to prevent crashes from special characters or underscores in usernames.
-* **Procd Integration**: Fully compatible with OpenWRT's process manager for auto-restart on crash and boot-start.
+* **Atomic Persistence**: Automatically saves subscriptions and the ban list to `/etc/tg-bot/subscriptions.json`.
+* **Graceful Shutdown**: Handles `SIGINT` and `SIGTERM` to ensure all data is flushed to disk before the process exits.
+* **Resource Efficient**: Built in Go using `sync.Map` for thread-safe operations without heavy locking, ensuring near-zero CPU impact on your router.
 
 ---
 
-## 🛠 Installation
+## 🛠 Installation & Deployment
 
 ### 1. Build for BPI-R4 (ARM64)
 
@@ -37,39 +44,56 @@ GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o tg-bot main.go
 
 ```
 
-*The flags `-s -w` strip debug symbols to reduce the binary size to ~5MB.*
+### 2. Set Up the OpenWRT Service
 
-### 2. Deploy to OpenWRT
+Create a new file at `/etc/init.d/tgbot` on your router and paste the following `procd` script:
 
-1. **Upload the binary**:
+```sh
+#!/bin/sh /etc/rc.common
+
+START=99
+USE_PROCD=1
+
+PROG="/usr/bin/tg-bot"
+CONFIG="/etc/tg-bot/game.conf"
+TOKEN="BOT_TOKEN"
+OWNER=OWNER_ID
+
+start_service() {
+    procd_open_instance
+    # Pass owner ID flag to ensure admin rights are active
+    procd_set_param command "$PROG" -t "$TOKEN" -c "$CONFIG" -o "$OWNER"
+
+    # Respawn logic: 5 attempts in 1 hour max, 5s delay between restarts
+    procd_set_param respawn 3600 5 5
+
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+    procd_close_instance
+}
+
+stop_service() {
+    # procd handles SIGTERM automatically, triggering saveData() in the Go code
+    return 0
+}
+
+```
+
+### 3. Activate the Bot
+
 ```bash
-scp tg-bot root@<router-ip>:/usr/bin/
 chmod +x /usr/bin/tg-bot
-
-```
-
-
-2. **Create the config directory**:
-```bash
-mkdir -p /etc/tg-bot
-
-```
-
-
-3. **Configure the Service**: Create `/etc/init.d/tgbot` and paste your `procd` script. Then enable it:
-```bash
+chmod +x /etc/init.d/tgbot
 /etc/init.d/tgbot enable
 /etc/init.d/tgbot start
 
 ```
 
-
-
 ---
 
 ## ⚙️ Configuration (`game.conf`)
 
-Store your game-specific messages in `/etc/tg-bot/game.conf`:
+Store custom messages in `/etc/tg-bot/game.conf`:
 
 ```ini
 [DOTA2]
@@ -81,20 +105,21 @@ msg=Winner Winner Chicken Dinner! 🍗
 
 ```
 
+---
+
 ## 🤖 BotFather Setup
 
-To ensure the best user experience, configure your bot with these commands:
+Configure your bot with these commands for the best user experience:
 
-1. **Set Command List**:
 ```text
 join - Subscribe to a game category
 leave - Unsubscribe from a category
-list - Show active categories in this group
-goplay - Schedule a game (tags everyone now)
+list - Show active categories and users
+goplay - Schedule a game (pings subscribers)
 gamenow - Start a game immediately
-statusreset - Clear your personal data
+ban - (Admin) Restrict a user ID
+unban - (Admin) Remove restriction
+banlist - (Admin) Show restricted IDs
+rmcat - (Admin) Delete a category
 
 ```
-
-
-2. **Enable Inline Mode**: Send `/setinline` to `@BotFather` to enable the category suggestion menu.
